@@ -1,0 +1,200 @@
+# coding=utf-8
+import argparse
+import string
+
+alphabet = string.ascii_lowercase
+alphabet_upper = string.ascii_uppercase
+size = len(alphabet)
+lower = set(alphabet)
+upper = set(alphabet_upper)
+cyrillic = 'абвгдеёжзийклмнопрстуфхцчшщъыьэюя'
+cyrillic_upper = cyrillic.upper()
+cyrillic_size = len(cyrillic)
+c_lower = set(cyrillic)
+c_upper = set(cyrillic_upper)
+symbols = ' ,.!?-;:()[]{}' #знаки препинания и пробел
+symbols_size = len(symbols)
+symbols_set = set(symbols)
+
+def symb_find(c, n):
+    if c in lower:
+        return alphabet[(alphabet.find(c) + n) % size]
+    elif c in upper:
+        return alphabet_upper[(alphabet_upper.find(c) + n) % size]
+    elif c in c_lower:
+        return cyrillic[(cyrillic.find(c) + n) % cyrillic_size]
+    elif c in c_upper:
+        return cyrillic_upper[(cyrillic_upper.find(c) + n) % cyrillic_size]
+    elif c in symbols_set:
+        return symbols[(symbols.find(c) + n) % symbols_size]
+    else:
+        return c
+
+def caesar(s, n):
+    ans = ""
+    for_ans = []
+    for i in range(len(s)):
+        for_ans.append(symb_find(s[i], n))
+    ans = ''.join(for_ans)
+    return ans
+
+def vigenere(s, key, encrypt):
+    ans = []
+    for i in range(len(s)):
+        j = i
+        while j >= len(key):
+            j -= len(key)
+        if  key[j].upper() in upper:
+            find_key = alphabet_upper.find(key[j].upper())
+        else:
+            find_key = cyrillic_upper.find(key[j].upper())
+        if encrypt:
+            ans.append(symb_find(s[i], find_key))
+        else:
+            ans.append(symb_find(s[i], -find_key))
+    return ''.join(ans)
+
+def undo_caesar(s, n):
+    return caesar(s, -n)
+
+def get_args():
+    parser = argparse.ArgumentParser()
+    subs = parser.add_subparsers()
+    encode_parser = subs.add_parser('encode', description='Зашифровать входное сообщение.')
+    encode_parser.set_defaults(method='encode')
+    encode_parser.add_argument("--cipher", help="caesar (Шифр Цезаря) или vigenere (Шифр Виженера).")
+    encode_parser.add_argument("--key", help="Для шифра Цезаря - число, соответствующее сдвигу, для шифра Виженера - слово, которое задает сдвиги.")
+    encode_parser.add_argument("--input-file", help="Путь ко входному файлу с текстом. Если не указан, текст вводится с клавиатуры.")
+    encode_parser.add_argument("--output-file", help="Путь ко входному файлу с текстом. Если не указан, текст выводится в консоль.")
+    decode_parser = subs.add_parser('decode', description='Расшифровать входное сообщение, зная шифр и ключ, с которым оно было зашифровано.')
+    decode_parser.set_defaults(method='decode')
+    decode_parser.add_argument("--cipher", help="caesar (Шифр Цезаря) или vigenere (Шифр Виженера).")
+    decode_parser.add_argument("--key", help="Для шифра Цезаря - число, соответствующее сдвигу, для шифра Виженера - слово, которое задает сдвиги.")
+    decode_parser.add_argument("--input-file", help="Путь ко входному файлу с текстом. Если не указан, текст вводится с клавиатуры.")
+    decode_parser.add_argument("--output-file", help="Путь ко входному файлу с текстом. Если не указан, текст выводится в консоль.")
+    train_parser = subs.add_parser('train', description='Проанализировать текст и построить языковую модель.')
+    hack_parser = subs.add_parser('hack', description='Попытаться расшифровать текст.')
+    hack_parser.set_defaults(method='hack')
+    train_parser.set_defaults(method='train')
+    train_parser.add_argument("--text-file", help="Путь ко входному файлу с текстом. Если не указан, текст вводится с клавиатуры.")
+    train_parser.add_argument("--model-file", required=True, help="Путь к файлу модели, которая будет использоваться.")
+    hack_parser.add_argument("--input-file", help="Путь ко входному файлу с текстом. Если не указан, текст вводится с клавиатуры.")
+    hack_parser.add_argument("--output-file", help="Путь ко входному файлу с текстом. Если не указан, расшифрованное сообщение выводится в консоль.")
+    hack_parser.add_argument("--model-file", required=True, help="Путь к файлу модели, которая будет использоваться.")
+    return parser.parse_args()
+
+def train(args, s):
+    s = s.lower()
+    cnt_alf = [0] * size
+    cnt_cyrillic = [0] * cyrillic_size
+    cnt_symbols = [0] * symbols_size
+    total = 0
+    for c in s:
+        if c in lower:
+            cnt_alf[alphabet.find(c)] += 1
+            total += 1
+        elif c in c_lower:
+            cnt_cyrillic[cyrillic.find(c)] += 1
+            total += 1
+        if c in symbols_set:
+            cnt_symbols[symbols.find(c)] += 1
+            total += 1
+    f_out = open(args.model_file, 'w')
+    for i in range(size):
+        cnt_alf[i] /= total
+        f_out.write(str(cnt_alf[i]) + ' ')
+    for i in range(cyrillic_size):
+        cnt_cyrillic[i] /= total
+        f_out.write(str(cnt_cyrillic[i]) + ' ')
+    for i in range(symbols_size):
+        cnt_symbols[i] /= total
+        f_out.write(str(cnt_symbols[i]) + ' ')
+    f_out.close()
+    
+
+def hack(args, s):
+    t = [0] * cyrillic_size
+    f_model = open(args.model_file, 'r')
+    cnt = f_model.read().split(' ')
+    f_model.close()
+    best = len(s)
+    best_i = -1
+    for i in range(cyrillic_size):
+        t[i] = undo_caesar(s, i)
+        kek = t[i].lower()
+        a_a = [0] * cyrillic_size
+        a_k = [0] * cyrillic_size
+        a_s = [0] * cyrillic_size
+        total = 0
+        for c in kek:
+            if c in lower:
+                a_a[alphabet.find(c)] += 1
+                total += 1
+            elif c in c_lower:
+                a_k[cyrillic.find(c)] += 1
+                total += 1
+            elif c in symbols_set:
+                a_s[symbols.find(c)] += 1
+                total += 1
+        f = 0
+        for i in range(size):
+            f += (a_a[i] / total - cnt[i]) ** 2
+        for i in range(size, cyrillic_size):
+            f += (a_k[i - size] / total - cnt[i]) ** 2
+        for i in range(cyrillic_size, symbols_size):
+            f += (a_s[i - cyrillic_size] / total - cnt[i]) ** 2
+        if best_i == -1 or best > f:
+            best_i = i
+            best = f
+    s = t[best_i]
+    return s
+
+def get_s(args):
+    try:
+        if args.input_file != None:
+            f_in = open(args.input_file, 'r')
+            s = f_in.read()
+            f_in.close()
+        elif args.text_file != None:
+            f_in = open(args.text_file, 'r')
+            s = f_in.read()
+            f_in.close()
+        else:
+            s = ""
+            while True:
+                try:
+                    s += input() + "\n"
+                except EOFError:
+                    break
+            s = s[:-1]
+    except AttributeError:
+        pass
+    return s
+
+def main():
+    args = get_args()
+    s = get_s(args)
+    if args.method == 'encode':
+        if args.cipher == "caesar":
+            s = caesar(s, int(args.key))
+        elif args.cipher == "vigenere":
+            s = vigenere(s, args.key, 1)
+    elif args.method == 'decode':
+        if args.cipher == "caesar":
+            s = undo_caesar(s, int(args.key))
+        elif args.cipher == "vigenere":
+            s = vigenere(s, args.key, 0)
+    elif args.method == 'train':
+        train(args, s)
+    elif args.method == 'hack':
+        hack(args, s)
+    if args.method != 'train':
+        if args.output_file != None:
+            f_out = open(args.output_file, 'w')
+            f_out.write(s)
+            f_out.close()
+        else:
+            print(s)
+            
+if __name__ == '__main__':
+    main()
